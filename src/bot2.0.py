@@ -1,37 +1,100 @@
+#!/usr/bin/env python
+
+# Simply trolling made just for fun usage: just run
+
 import sys
 import os
 import getpass
-import vk_api
 import time
 import json
 from itertools import cycle
+import vk_api
 
-# Get protected posts/messages
-def getInfo() -> dict:
+
+__author__ = "Dukshtau Philip"
+__copyright__ = "Copyright 2018, The vkBot2.0 Project"
+__credits__ = ["Dukshtau Philip"]
+__license__ = "GPL"
+__version__ = "1.0.1"
+__maintainer__ = "Dukshtau Philip"
+__email__ = "f.dukshtau@gmail.com"
+__status__ = "Release"
+
+
+def list_to_str(data) -> str:
+    """Create string from list.
+
+        Create string such as: "1,2,3,4" from [1, 2, 3, 4] list
+
+        Args:
+            data: list.
+
+        Returns:
+            A string
+        """
+    string = str()
+
+    for i in data:
+        string += str(i) + ","
+
+    string = string[:-1]
+
+    return string
+
+
+def load_info_json() -> dict:
+    """Load 'info.json'.
+
+        Load file that contains chat id's, groups domains and messages
+
+        Args:
+            None.
+
+        Returns:
+            A dict that contains rooms, ids, messages
+        """
+
     __location__ = os.path.realpath(
         os.path.join(os.getcwd(), os.path.dirname(__file__)))
+    arr = {}
 
-    try:
-        F = open(os.path.join(__location__, 'info.json'), "r")
-    except BaseException as err:
-        print("File protected.json not found " + str(err))
-        exit(0)
+    # try:
+    #     f = open(os.path.join(__location__, 'info.json'), "r")
+    # except BaseException as err:
+    #     print("File protected.json not found " + str(err))
+    #     exit(0)
+    #
+    # arr = json.load(f)
+    #
+    # f.close()
 
-    arr = json.load(F)
+    with open(os.path.join(__location__, 'info.json'), "r") as f:
+        arr = json.load(f)
 
-    F.close()
     return arr
 
 
-def GetPickFromAniWall(vk, domain, offset):
-    wall = vk.wall.get(domain=domain, offset=offset, count=1)
+def get_pick_from_wall(vk, domain, offset):
+    """Get picture from domain.
 
-    if not ('photo' in wall['items'][0]['attachments'][0]):
-        return None
+        Get pictures of wall post from group by it domain
 
+        Args:
+            vk: vk api handle module.
+            domain: domain, from where we going pool images
+            offset: offset of posts in domain wall
+
+        Returns:
+            A list of strings, that contains vkApi links to photos
+        """
+
+    wall = vk.wall.get(domain=domain, offset=offset, count=1)['items'][0]
     photos = []
 
-    for i in wall["items"][0]['attachments']:
+    if 'photo' not in wall['attachments'][0]:
+        return None
+
+    for i in wall['attachments']:
         owid = str(i['photo'].get('owner_id'))
         id = str(i['photo'].get('id'))
         acces = str(i['photo'].get('access_key'))
@@ -40,30 +103,58 @@ def GetPickFromAniWall(vk, domain, offset):
 
     return photos
 
-def SendMessage(vk, *data):
+
+def send_message(vk, **data):
+    """Send message to vk conversation.
+
+        Send message, that can include text or text and attachments
+
+        Args:
+            vk: vk api handle module.
+            Keyword Args:
+                required args:
+                    chat_id/user_id (str): group chat id, where to sand message/user id, where message will be sand
+                    message (str): message that will be sand
+                extra:
+                    attachments (str): attachments list
+
+        Returns:
+            A list of strings, that contains vkApi links to photos
+
+        Raises:
+        Exception: incorrect kwargs list.
+
+       """
     if len(data) < 1:
-        return 0
+        return
 
-    if len(data) == 2:
-        vk.message.send(chat_id=data[0], message=data[1])
+    elif len(data) == 2:
+        if "chat_id" in data:
+            vk.messages.send(chat_id=data["chat_id"], message=data["message"])
+        elif "user_id" in data:
+            vk.messages.send(user_id=data["user_id"], message=data["message"])
 
-    elif len(data) == 3:
-        att = str()
-        if len(data[2]) != 1:
-            for i in data[2]:
-                att = i + ","
-
-            att = att[0::-1]
-        else:
-            att = data[2]
-
-        vk.messages.send(chat_id=data[0], message=data[1], attachment=att)
-
+    elif len(data) == 3 and "attachments" in data:
+        if "chat_id" in data:
+            vk.messages.send(chat_id=data["chat_id"], message=data["message"], attachment=data["attachments"])
+        elif "user_id" in data:
+            vk.messages.send(user_id=data["user_id"], message=data["message"], attachment=data["attachments"])
+    else:
+        raise Exception("Incorrect function call")
 
 
+def get_vk_api():
+    """Get vk api.
 
-# Get vk api object and user id
-def getVkApi():
+        Simply use vk_api module to get vkApi instance
+
+        Args:
+            None.
+
+        Returns:
+            A tuple where first: vkApi, second: token
+
+       """
     login = input('Login:')
     password = getpass.getpass('Password:')
 
@@ -82,16 +173,61 @@ def getVkApi():
 
     return vk_session.get_api(), vk_session.token['access_token']
 
+
+def get_users_domains(vk, chat_id):
+    """Get domains of users in conversation.
+
+        Get domains of all users in conversation by chat_id
+
+        Args:
+            vk: vk api handle module.
+            chat_id: id of chat, where fuction get ids
+
+        Returns:
+            A list of strings, that contains domains of all users in group chat
+       """
+    ids = vk.messages.getChat(chat_id=chat_id)['users']
+    ids_str = list_to_str(ids)
+
+    domains = vk.users.get(user_ids=ids_str, fields="domain")
+    domains_list = []
+
+    for d in domains:
+        domains_list.append(d['domain'])
+
+    return domains_list
+
+
+def wake_up(vk, chat_id, domains):
+    """Just funny function that mention everyone in group chat.
+
+        Args:
+            vk: vk api handle module.
+            chat_id: id of chat, where it will do fun
+            domains: a list of domains, use - get_users_domains() to get it
+
+        Returns:
+           None.
+       """
+    message = ""
+    for d in domains:
+        message += "@" + str(d) + " "
+
+    message = message[:-1]
+
+    send_message(vk, chat_id=chat_id, message=message)
+
+
 def main():
     FNAME = "key.txt"
-    vk, token = getVkApi()
-
-    info = getInfo()
+    vk, token = get_vk_api()
+    key = 2
+    info = load_info_json()
+    count_of_sended = 0
 
     domain = info['domain']
     messages = info['messages']
     chat_ids = info['chat_ids']
-    key = 2
 
     if os.path.isfile(FNAME):
         with open(FNAME, "r") as f:
@@ -101,22 +237,35 @@ def main():
 
     domain_cycle = cycle(domain)
     message_cycle = cycle(messages)
+
+    for room in chat_ids:
+        send_message(vk, chat_id=room, message="Поїхали")
+        domains_list = get_users_domains(vk, room)
+        wake_up(vk, room, domains_list)
+        time.sleep(0.5)
+
     while 1:
-        att = GetPickFromAniWall(vk, next(domain_cycle), key)
-        msg = next(message_cycle)
-        if att == None:
+        att = list_to_str(get_pick_from_wall(vk, next(domain_cycle), key))
+        msg = next(message_cycle)  # + " @" + random.choice(domains_list)
+
+        if att is None:
             key += 1
             continue
 
         for room in chat_ids:
-            SendMessage(vk, room, msg, att)
+            send_message(vk, chat_id=room, message=msg, attachments=att)
             time.sleep(0.5)
 
         key += 1
+        count_of_sended += 1
+
+        print("You sanded: " + str(count_of_sended) + " posts \r", sep=' ', end='', flush=True)
 
         with open(FNAME, "w") as f:
             f.write(str(key))
 
-        time.sleep(30)
+        time.sleep(10)
+
+
 if __name__ == '__main__':
     main()
