@@ -7,15 +7,17 @@ import os
 import getpass
 import time
 import json
+import requests
 from itertools import cycle
 import vk_api
+import dvach_handle as ch
 
 
 __author__ = "Dukshtau Philip"
 __copyright__ = "Copyright 2018, The vkBot2.0 Project"
 __credits__ = ["Dukshtau Philip"]
 __license__ = "GPL"
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 __maintainer__ = "Dukshtau Philip"
 __email__ = "f.dukshtau@gmail.com"
 __status__ = "Release"
@@ -174,6 +176,28 @@ def get_vk_api():
     return vk_session.get_api(), vk_session.token['access_token']
 
 
+def get_user_idis(vk, chat_id):
+    ids = vk.messages.getChat(chat_id=chat_id)['users']
+    return ids
+
+
+def create_mem_party(vk, user_ids):
+    """Create new conversation with user ids.
+
+        Args:
+            vk: vk api handle module.
+            user_ids: string of user ids
+
+        Returns:
+            Chat id
+       """
+
+    chat_id = vk.messages.createChat(user_ids=user_ids, title='мемная вечеринка')
+    send_message(vk, chat_id=chat_id, message='юху мемная вечеринка')
+
+    return chat_id
+
+
 def get_users_domains(vk, chat_id):
     """Get domains of users in conversation.
 
@@ -186,7 +210,7 @@ def get_users_domains(vk, chat_id):
         Returns:
             A list of strings, that contains domains of all users in group chat
        """
-    ids = vk.messages.getChat(chat_id=chat_id)['users']
+    ids = get_user_idis(vk, chat_id)
     ids_str = list_to_str(ids)
 
     domains = vk.users.get(user_ids=ids_str, fields="domain")
@@ -218,16 +242,54 @@ def wake_up(vk, chat_id, domains):
     send_message(vk, chat_id=chat_id, message=message)
 
 
+def upload_pick(vk, files):
+    """Upload picks to message attachments.
+
+        Args:
+            vk: vk api handle module.
+            files: list of file names
+
+        Returns:
+           list of attachments.
+       """
+    att_link = []
+
+    for file in files:
+        upload_url = vk.photos.getMessagesUploadServer()['upload_url']
+
+        with open(file, 'rb') as f:
+            file_id = requests.post(upload_url, files={'photo': f})
+
+        if file_id.status_code != 200:
+            return
+
+        file_id = json.loads(file_id.text)
+        link = vk.photos.saveMessagesPhoto(photo=file_id['photo'], server=file_id['server'], hash=file_id['hash'])
+
+        att_link.append('photo' + str(link[0]['owner_id']) + '_' + str(link[0]['id']))
+
+    return att_link
+
+
 def main():
     FNAME = "key.txt"
     vk, token = get_vk_api()
     key = 2
     info = load_info_json()
     count_of_sended = 0
+    # create 2ch object
+    d_api = ch.DvachHandle("https://2ch.hk/b/res/186610524.html", 60)
+
 
     domain = info['domain']
     messages = info['messages']
-    chat_ids = info['chat_ids']
+    chat_ids_begin = info['chat_ids']
+    chat_ids = []
+
+    # create new chat with users from chats that contains in info.json
+    for chat in chat_ids_begin:
+        chat_ids.append(str(create_mem_party(vk, list_to_str(get_user_idis(vk, chat)))))
+
 
     if os.path.isfile(FNAME):
         with open(FNAME, "r") as f:
@@ -238,19 +300,23 @@ def main():
     domain_cycle = cycle(domain)
     message_cycle = cycle(messages)
 
-    for room in chat_ids:
-        send_message(vk, chat_id=room, message="Поїхали")
-        domains_list = get_users_domains(vk, room)
-        wake_up(vk, room, domains_list)
-        time.sleep(0.5)
+    # wake up function call
+
+    # for room in chat_ids:
+    #     send_message(vk, chat_id=room, message="Поїхали")
+    #     domains_list = get_users_domains(vk, room)
+    #     wake_up(vk, room, domains_list)
+    #     time.sleep(0.5)
 
     while 1:
-        att = list_to_str(get_pick_from_wall(vk, next(domain_cycle), key))
+        urls = upload_pick(vk, d_api.get_images())
+
+        att = list_to_str(urls) # list_to_str(get_pick_from_wall(vk, next(domain_cycle), key))
         msg = next(message_cycle)  # + " @" + random.choice(domains_list)
 
-        if att is None:
-            key += 1
-            continue
+        # if att is None:
+        #     key += 1
+        #     continue
 
         for room in chat_ids:
             send_message(vk, chat_id=room, message=msg, attachments=att)
@@ -264,7 +330,7 @@ def main():
         with open(FNAME, "w") as f:
             f.write(str(key))
 
-        time.sleep(10)
+        time.sleep(5)
 
 
 if __name__ == '__main__':
